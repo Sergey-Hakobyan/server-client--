@@ -3,48 +3,42 @@
 #include <unistd.h>
 #include <arpa/inet.h>
 #include <pthread.h>
+#include <stdlib.h>
 
 
-void* receiveMessages(void *arg){
+
+int clients[100];
+int clientCount = 0;
+pthread_mutex_t mutex;
+
+
+void* handleClient(void* arg){
     int client_fd = *(int*)arg;
+    free(arg);
     char buffer[1024];
 
     while(1){
         memset(buffer, 0, sizeof(buffer));
-    int bytes = recv(client_fd, buffer, sizeof(buffer), 0);
-
-    if(bytes <= 0){
-        printf("Client disconnected\n");
-        break;
+        int bytes = recv(client_fd, buffer, sizeof(buffer), 0);
+        
+        if(bytes<=0){
+            printf("Client[%d] disconnected", client_fd);
+            break;
+        };
+        pthread_mutex_lock(&mutex);
+        printf("Client[%d]: %s\n",client_fd, buffer);
+        pthread_mutex_unlock(&mutex);
     }
+    close(client_fd);
 
-printf("Client: %s\n", buffer);
-        if(strcmp(buffer, "exit") == 0){
-            break; 
-        }
-    }
     return NULL;
+
 }
-
-void* sendMessages(void *arg){
-    int client_fd = *(int*)arg;
-    char buffer[1024];
-
-    while(1){
-        fgets(buffer, sizeof(buffer), stdin);
-        buffer[strcspn(buffer, "\n")] = '\0'; //ищет первый символ \n из buffer в строке и возвращает его индекс.
-        send(client_fd, buffer, strlen(buffer) + 1, 0);
-    }
-    return NULL;
-}
-
-
-
 
 int main(){
-    int server_fd, client_fd;
+    int server_fd;
     struct sockaddr_in server_addr;
-    char buffer[1024];
+    
 
     server_fd = socket(AF_INET, SOCK_STREAM, 0);
 
@@ -58,21 +52,24 @@ int main(){
 
     printf("Waiting for connection...\n");
 
-    client_fd = accept(server_fd, NULL, NULL);
+    pthread_mutex_init(&mutex, NULL);
+    while(1){
 
-    printf("Client succesfully connected!\n");
+        int* client_ptr = calloc(1, sizeof(int));
 
-    pthread_t sender;
-    pthread_t receiver;
+        *client_ptr = accept(server_fd, NULL, NULL);
 
-    pthread_create(&sender, NULL, sendMessages, &client_fd);
-    pthread_create(&receiver, NULL, receiveMessages, &client_fd);
+        if(*client_ptr < 0){
+            free(client_ptr);
+            continue; //back to while
+        }
+        clients[clientCount++] = *client_ptr;
+        printf("client connected succesfully, Socket = %d\n", *client_ptr);
+        pthread_t thread;
 
-
-    pthread_join(sender, NULL);
-    pthread_join(receiver, NULL);
-
-    close(client_fd);
+        pthread_create(&thread, NULL, handleClient, client_ptr);
+        pthread_detach(thread);
+    }
     close(server_fd);
     return 0;
 }
